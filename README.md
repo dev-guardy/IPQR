@@ -1,156 +1,347 @@
-# Putting People in LLMs’ Shoes: Generating Better Answers via Question Rewriter
+# Intent-Preserving Query Rewriting (IPQR)
 
-<p align="center">
-<img src="https://github.com/3244we/Question-Rewriter/blob/master/img/pps_new.png" width="800">
-</p>
+<div align="center">
+  <img src="https://github.com/dev-guardy/IPQR/blob/main/logo.png" alt="IPQR Logo" width="1000"/>
+</div>
 
-This includes the code for generating data and training the rewriter using DPO. The DPO training code is derived from https://github.com/eric-mitchell/direct-preference-optimization with minor modifications. The model used for making judgments on TruthfulQA will be available for download after the publication of our paper, hence the code for generating data and testing the rewriter on TruthfulQA is temporarily unavailable. The version of cuda that we use is 11.8. [The paper is currently on arXiv.](https://arxiv.org/abs/2408.10573)
+<div align="center">
+  <h3>An Embedding-Based Framework for Large Language Models</h3>
+</div>
 
-## Installation
+This repository contains the implementation of **Intent-Preserving Query Rewriting (IPQR)**, a novel framework that transforms imperfect user queries into well-formed queries while maintaining the original user intent. Unlike existing methods that assume well-formed queries, IPQR is specifically designed for real-world user interactions with incomplete phrases, keyword-based searches, and grammatically imperfect statements.
 
-Follow these steps to install the necessary dependencies and get the project up and running.
+## 📋 Table of Contents
 
-1. **Create a virtual environment:**
+- [Overview](#overview)  
+- [Installation](#installation)
+- [Dataset Preparation](#dataset-preparation)
+- [Pipeline Execution](#pipeline-execution)
+- [Evaluation](#evaluation)
+- [Results](#results)
+- [Citation](#citation)
 
+## 🎯 Overview
+
+IPQR addresses the fundamental limitation that existing query rewriting methods assume well-formed, grammatically correct user queries. Our framework:
+
+- **Handles Real-World Queries**: Processes imperfect queries with altered word orders, abbreviations, keyword fragments, and colloquial expressions
+- **Preserves User Intent**: Uses triplet-trained embeddings to select optimal rewrites without over-modification
+- **Achieves Superior Performance**: Outperforms existing single-round methods on realistic datasets while maintaining competitive performance on standard benchmarks
+- **Reduces Training Cost**: Significantly lower computational requirements compared to reinforcement learning approaches
+
+### Key Contributions
+
+1. **Realistic Dataset Construction**: Transform existing benchmarks to incorporate real-world user query patterns
+2. **Embedding-Driven Intent Preservation**: Novel single-round approach using triplet-trained embeddings
+3. **Superior Practical Performance**: Better results on realistic datasets with reduced training time
+
+## 🛠 Installation
+
+### Prerequisites
+
+- Python 3.8+
+- CUDA 11.8+
+- NVIDIA GPUs with sufficient VRAM (recommended: A100 40GB+ for training)
+
+### Setup
+
+1. **Create virtual environment:**
    ```bash
-    conda create --name myenv python=3.8.0
+   conda create --name ipqr python=3.8.0
+   conda activate ipqr
    ```
 
-2. **Install the dependencies:**
-
+2. **Install dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
-3. **Obtain download permissions for llama_3 and log into your Hugging Face account in the system.**
 
-## Setup
+3. **Configure access:**
+   - Obtain HuggingFace access for Llama models
+   - Set OpenAI API key for dataset generation
+   - Configure WandB for training monitoring (optional)
 
-1. **Activate virtual environment:**
+## 📊 Dataset Preparation
 
-   ```bash
-    conda activate myenv 
-   ```
+### Standard Datasets
 
-2. **Set the wandb token:**
+We evaluate on three established QA datasets:
 
-   ```bash
-    Replace the ??? in line 31 of direct-preference-optimization/train.py with your own wandb token. 
-   ```
-   
-## K-QA
+- **K-QA Dataset**: Medical domain with FActScore methodology
+- **TruthfulQA**: Multi-domain truthfulness evaluation (38 categories)  
+- **OQA**: Conversational dialogue benchmark
 
-Training and testing rewriter on K-QA.
+### Realistic Dataset Construction
 
-1. **Generate original answers and scores. The results are located in data/original/. Each model requires 17 GB of GPU memory.**
+Based on analysis of real user query patterns, we transform standard datasets to include:
 
-   ```bash
-   python original_kqa.py --device_respond "cuda:0"
-   ```
+- **Altered Word Orders** (23%): Scrambled syntax, missing articles
+- **Abbreviations & Acronyms** (27%): Texting shortcuts, shortened forms
+- **Keyword-Based Queries** (26%): Fragmented search terms
+- **Colloquial Expressions** (24%): Conversational, informal tone
 
-2. **Generate rewritten questions, answers and scores. The results are located in data/rewrite/. Each model requires 17 GB of GPU memory.**
+## 🚀 Pipeline Execution
 
-   ```bash
-   python rewrite_kqa.py --device_respond "cuda:0"
-   ```
+### Phase 1: Data Generation and Processing
 
-3. **Generate DPO data. The results are located in data/dpo/. Finally the <u>size of val_set</u> is printed to replace the <u>n_eval_examples</u> in the next step.**
+#### 1. Generate Original Answers and Scores
 
-   ```bash
-   python generate_dpo_kqa.py
-   ```
+```bash
+# K-QA Dataset
+python original_kqa.py --device_respond "cuda:0"
 
-4. **Generate rewritten questions, answers and scores. The ckpt are located in direct-preference-optimization/.cache/. Model requires 40 GB of GPU memory.**
+# TruthfulQA Dataset  
+python original_tqa.py --device_respond "cuda:0" --device_judge_1 "cuda:1" --device_judge_2 "cuda:2"
 
-   ```bash
-   cd direct-preference-optimization
+# OQA Dataset
+python original_oqa.py --device_respond "cuda:0" --device_judge "cuda:1"
+```
 
-   python -u train.py model=llama3-8b datasets=../data/dpo/kqa_train_data_200.json loss=dpo loss.beta=0.1 exp_name=dpo_kqa gradient_accumulation_steps=8 batch_size=32 eval_batch_size=64 trainer=FSDPTrainer sample_during_eval=false model.fsdp_policy_mp=bfloat16 eval_dataset_path=../data/dpo/kqa_eval_data_200.json n_eval_examples=4557 lora=0 dr=0.8
+#### 2. Generate Broken Questions (4 Types)
 
-   cd ..
-   ```
+```bash
+# K-QA Dataset
+python datasets/K-QA/dataset/generate_broken_questions_kqa.py --openai_api_key "your_openai_api_key"
 
-5. **Test rewriter. The results of table are located in data/rewrite/, the first column of the table is $S_{comp}$, the second column is $S_{cont}$. Each model requires 17 GB of GPU memory.**
+# TruthfulQA Dataset
+python datasets/TruthfulQA/dataset/generate_broken_questions_tqa.py --openai_api_key "your_openai_api_key"
 
-   ```bash
-   python test_kqa.py --name "your_test_name" --is_rewrite 1 --device_judge "cuda:0" --device_rewriter "cuda:1" --device_respond "cuda:2" --rewriter_ckpt "your_ckpt" --test 0 --openai_api_key "your_openai_api_key"
-   ```
+# OQA Dataset  
+python datasets/OQA/dataset/generate_broken_questions_oqa.py --openai_api_key "your_openai_api_key"
+```
 
-## TruthfulQA
+#### 3. Generate IPQR Training Data
 
-The model used for the evaluation is available from huggingface :
+```bash
+python generate_ipqr_data.py
+```
 
-https://huggingface.co/3244we/Llama-3-8B-Instruct-Truthfulqa-Truth-Judge
+This creates `data/pairs.jsonl` containing:
+- Original and broken question pairs
+- Ground truth answers and must-have information
+- Train/validation splits
 
-https://huggingface.co/3244we/Llama-3-8B-Instruct-Truthfulqa-Info-Judge
+### Phase 2: Model Training
 
-Training and testing rewriter on TruthfulQA.
+#### 4. Train Question Rewriter
 
-1. **Generate original answers and scores. The results are located in data/original/. Each model requires 17 GB of GPU memory.**
+```bash
+cd ipqr
+python generate_sft_data.py
+```
 
-   ```bash
-   python original_tqa.py --device_respond "cuda:0" --device_judge_1 "cuda:1" --device_judge_2 "cuda:2"
-   ```
+Processes question pairs through:
+- Llama-3.2-3B-Instruct rewriter model
+- BGE-M3 embedding-based evaluation
+- Generates `improved_pairs.jsonl`
 
-2. **Generate rewritten questions, answers and scores. The results are located in data/rewrite/. Each model requires 17 GB of GPU memory.**
+#### 5. Create SFT Training Data
 
-   ```bash
-   python rewrite_tqa.py --device_respond "cuda:0" --device_judge_1 "cuda:1" --device_judge_2 "cuda:2"
-   ```
+```bash
+python create_training_data.py
+```
 
-3. **Generate DPO data. The results are located in data/dpo/. Finally the <u>size of val_set</u> is printed to replace the <u>n_eval_examples</u> in the next step.**
+Features:
+- BGE-M3 similarity filtering (threshold: 0.8)
+- Llama 3.2 format preparation
+- Generates `training_data_llama_bge_filtered.jsonl`
 
-   ```bash
-   python generate_dpo_tqa.py
-   ```
+#### 6. Fine-tune BGE-M3 Embedding Model
 
-4. **Generate rewritten questions, answers and scores. The ckpt are located in direct-preference-optimization/.cache/. Model requires 40 GB of GPU memory.**
+```bash
+python bge_trainer.py \
+    --cuda 0 \
+    --epochs 6 \
+    --batch_size 32 \
+    --learning_rate 5e-6 \
+    --wandb_project "bge-m3-finetuning" \
+    --wandb_name "bge-m3-ipqr"
+```
 
-   ```bash
-   cd direct-preference-optimization
+Training features:
+- **Triplet Loss**: Ranks improved questions using composite scoring
+- **Automatic Dataset Splitting**: 80% train, 10% validation, 10% test
+- **Performance Monitoring**: Real-time accuracy and similarity metrics
+- **Dual Format Output**: SentenceTransformer + HuggingFace compatible
 
-   python -u train.py model=llama3-8b datasets=../data/dpo/tqa_train_data_200.json loss=dpo loss.beta=0.1 exp_name=dpo_tqa gradient_accumulation_steps=8 batch_size=32 eval_batch_size=64 trainer=FSDPTrainer sample_during_eval=false model.fsdp_policy_mp=bfloat16 eval_dataset_path=../data/dpo/tqa_eval_data_200.json n_eval_examples=4557 lora=0 dr=0.8
+## 🧪 Evaluation
 
-   cd ..
-   ```
+### Test IPQR Performance
 
-5. **Test rewriter. The results of table are located in data/rewrite/, the first column of the table is $S_{truth}$, the second column is $S_{info}$ and the last column is $S_{ovarall}$. Each model requires 17 GB of GPU memory.**
+#### K-QA Evaluation
 
-   ```bash
-   python test_tqa.py --name "your_test_name" --is_rewrite 1 --device_judge_1 "cuda:0" --device_judge_2 "cuda:1" --device_rewriter "cuda:2" --device_respond "cuda:3" --rewriter_ckpt "your_ckpt" --test 0 --openai_api_key "your_openai_api_key" 
+```bash
+# Standard questions (clean, well-formed)
+python test_kqa_ipqr.py \
+    --device_judge "cuda:0" \
+    --device_completer "cuda:1" \
+    --device_respond "cuda:2" \
+    --openai_api_key "your_openai_api_key"
 
-## OASST1QA
+# Broken questions (real-world scenario)  
+python test_kqa_ipqr_r.py \
+    --device_judge "cuda:0" \
+    --device_completer "cuda:1" \
+    --device_respond "cuda:2" \
+    --openai_api_key "your_openai_api_key"
+```
 
-Training and testing rewriter on OASST1QA.
+#### TruthfulQA Evaluation
 
-1. **Generate original answers and scores. The results are located in data/original/. The model_respond requires 17 GB of GPU memory and the model_judge requires less than 10 GB of GPU memory.**
+```bash
+# Standard questions
+python test_tqa_ipqr.py \
+    --device_judge_1 "cuda:0" \
+    --device_judge_2 "cuda:1" \
+    --device_completer "cuda:2" \
+    --device_respond "cuda:3" \
+    --openai_api_key "your_openai_api_key"
 
-   ```bash
-   python original_oqa.py --device_respond "cuda:0" --device_judge "cuda:1"
-   ```
+# Broken questions (real-world scenario)
+python test_tqa_ipqr_r.py \
+    --device_judge_1 "cuda:0" \
+    --device_judge_2 "cuda:1" \
+    --device_completer "cuda:2" \
+    --device_respond "cuda:3" \
+    --openai_api_key "your_openai_api_key"
+```
 
-2. **Generate rewritten questions, answers and scores. The results are located in data/rewrite/. The model_respond requires 17 GB of GPU memory and the model_judge requires less than 10 GB of GPU memory.**
+#### OASST1QA Evaluation
 
-   ```bash
-   python rewrite_oqa.py --device_respond "cuda:0" --device_judge "cuda:1"
-   ```
+```bash
+# Standard questions
+python test_oqa_ipqr.py \
+    --device_judge "cuda:0" \
+    --device_completer "cuda:1" \
+    --device_respond "cuda:2" \
+    --openai_api_key "your_openai_api_key"
 
-3. **Generate DPO data. The results are located in data/dpo/. Finally the <u>size of val_set</u> is printed to replace the <u>n_eval_examples</u> in the next step.**
+# Broken questions (real-world scenario)
+python test_oqa_ipqr_r.py \
+    --device_judge "cuda:0" \
+    --device_completer "cuda:1" \
+    --device_respond "cuda:2" \
+    --openai_api_key "your_openai_api_key"
+```
 
-   ```bash
-   python generate_dpo_oqa.py
-   ```
+### Evaluation Metrics
 
-4. **Generate rewritten questions, answers and scores. The ckpt are located in direct-preference-optimization/.cache/. Model requires 80 GB of GPU memory.**
+- **K-QA**: Comprehensiveness ($S_{comp}$ ↑) and Contradiction ($S_{cont}$ ↓)
+- **TruthfulQA**: Truthfulness ($S_{truth}$ ↑), Informativeness ($S_{info}$ ↑)  
+- **OQA**: Human Preference Score ($S_{pref}$ ↑)
 
-   ```bash
-   cd direct-preference-optimization
+### Real-World Testing Significance
 
-   python -u train.py model=llama3-8b datasets=../data/dpo/oqa_train_data_200.json loss=dpo loss.beta=0.1 exp_name=dpo_tqa gradient_accumulation_steps=8 batch_size=32 eval_batch_size=64 trainer=FSDPTrainer sample_during_eval=false model.fsdp_policy_mp=bfloat16 eval_dataset_path=../data/dpo/oqa_eval_data_200.json n_eval_examples=4557 lora=0 dr=0.8
+**Broken Questions Testing** (`*_r.py` scripts) represents authentic user scenarios:
+- Grammatical errors and casual language
+- Search query-style fragmented input
+- Abbreviations and colloquial expressions
+- This evaluation demonstrates IPQR's effectiveness for real-world deployment
 
-   cd ..
-   ```
+## 📈 Results
 
-5. **Test rewriter. The results of table are located in data/rewrite/, the first column of the table is $S_{perf}$. The model_respond, model_rewriter requires 17 GB of GPU memory and the model_judge requires less than 10 GB of GPU memory.**
+### Performance Highlights
 
-   ```bash
-   python test_oqa.py --name "your_test_name" --is_rewrite 1 --device_judge "cuda:0" --device_rewriter "cuda:1" --device_respond "cuda:2" --rewriter_ckpt "your_ckpt" --test 0 --openai_api_key "your_openai_api_key" 
+- **Competitive on Standard Datasets**: Matches state-of-the-art DPO-based methods
+- **Superior on Realistic Datasets**: Significantly outperforms existing approaches on broken queries
+- **Cross-Model Generalization**: Effective across Llama, Mistral, Zephyr, Gemma, and GPT models
+- **Training Efficiency**: 3x faster training with 4x lower GPU memory requirements
+
+### Key Findings
+
+| Method | Training Time | GPU Memory | Standard Dataset | Realistic Dataset |
+|--------|---------------|------------|------------------|-------------------|
+| DPO (Baseline) | 16 hours | 80GB | Strong | Weak |
+| **IPQR (Ours)** | **3 hours** | **20GB** | **Strong** | **Strong** |
+
+## 🏗️ Framework Architecture
+
+```
+Input Query (Original/Broken) 
+    ↓
+Query Rewriter (Llama-3.2-3B) → Generate n=3 candidates
+    ↓
+BGE-M3 Embedding Selection → Select best intent-preserving rewrite
+    ↓  
+Target LLM → Generate final answer
+```
+
+### Training Components
+
+1. **Better Query Generation**: Creates improved questions with higher answer quality scores
+2. **Rewriter Training**: LoRA fine-tuning of Llama-3.2-3B to generate candidate rewrites
+3. **Embedding Training**: Triplet loss training of BGE-M3 for intent preservation
+4. **Selection Mechanism**: Cosine similarity-based selection preserving user intent
+
+## 📁 Repository Structure
+
+```
+ipqr/
+├── datasets/                  # Standard QA datasets
+│   ├── K-QA/
+│   │   └── dataset/
+│   │       ├── questions_w_answers.jsonl
+│   │       └── generate_broken_questions_kqa.py
+│   ├── TruthfulQA/
+│   │   └── dataset/
+│   │       └── generate_broken_questions_tqa.py
+│   └── OQA/
+│       └── dataset/
+│           └── generate_broken_questions_oqa.py
+├── data/                      # Generated data files
+│   ├── original/              # Original answers and scores
+│   ├── rewrite/              # Rewritten questions
+│   └── dpo/                  # Training data
+├── ipqr/                      # Core IPQR implementation
+│   ├── generate_sft_data.py
+│   ├── create_training_data.py
+│   └── bge_trainer.py
+├── test_results/             # Evaluation outputs
+├── intermediate_results/     # Processing intermediates
+├── llms/                    # LLM interface modules
+├── generate_ipqr_data.py    # IPQR data generation
+├── test_kqa_ipqr.py         # K-QA standard evaluation
+├── test_kqa_ipqr_r.py       # K-QA broken evaluation
+├── test_tqa_ipqr.py         # TruthfulQA standard evaluation  
+├── test_tqa_ipqr_r.py       # TruthfulQA broken evaluation
+├── test_oqa_ipqr.py         # OQA standard evaluation
+├── test_oqa_ipqr_r.py       # OQA broken evaluation
+├── original_kqa.py          # K-QA original processing
+├── original_tqa.py          # TruthfulQA original processing
+├── original_oqa.py          # OQA original processing
+└── requirements.txt
+```
+### Referenced Work
+
+Our work builds upon and compares with:
+
+```
+@article{chen2025putting,
+  title={Putting People in LLMs' Shoes: Generating Better Answers via Question Rewriter},
+  author={Chen, Zheng and others},
+  journal={arXiv preprint arXiv:2408.10573},
+  year={2025}
+}
+
+@article{kong2024prewrite,
+  title={PRewrite: Prompt Rewriting with Reinforcement Learning},
+  author={Kong, Weize and others},
+  journal={ICML 2024},
+  year={2024}
+}
+```
+## 🤝 Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## 📧 Contact
+
+For questions about the implementation or paper, please open an issue or contact [contact-email].
+
+## 📜 License
+
+This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
+
+---
+
+**Note**: This implementation requires significant computational resources for training. For reproduction, we recommend using high-end GPUs (A100 40GB+) and ensuring sufficient disk space for intermediate data storage.
