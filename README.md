@@ -330,17 +330,6 @@ Our work builds upon and compares with:
   year={2024}
 }
 ```
-## 🤝 Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-## 📧 Contact
-
-For questions about the implementation or paper, please open an issue or contact [contact-email].
-
-## 📜 License
-
-This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
